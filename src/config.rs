@@ -55,6 +55,18 @@ pub struct DatabaseConfig {
 
 impl Config {
   pub fn load() -> Result<Self, ConfigError> {
+    // Check for --http-port argument
+    let args: Vec<String> = std::env::args().collect();
+    let mut http_port: Option<u16> = None;
+
+    for i in 0..args.len() {
+      if args[i] == "--http-port" && i + 1 < args.len() {
+        if let Ok(port) = args[i + 1].parse::<u16>() {
+          http_port = Some(port);
+        }
+      }
+    }
+
     // Check for config files
     let config_path = if Path::new("config.toml").exists() {
       Some("config.toml")
@@ -70,31 +82,45 @@ impl Config {
       let config = ConfigBuilder::builder()
         .add_source(File::with_name(path))
         .build()?;
-      
+
       let mut config: Config = config.try_deserialize()?;
-      
+
       // Force logging to file for stdio transport
       if matches!(config.server.transport, TransportType::Stdio) && config.telemetry.file.is_none() {
         config.telemetry.file = Some(format!("/tmp/{}.log", env!("CARGO_PKG_NAME")));
       }
-      
+
       return Ok(config);
     }
 
-    // No config file - build from environment variables
-    tracing::info!("No config file found, building from environment variables");
-    
-    // Get port from Railway's PORT env var
-    let port = std::env::var("PORT")
-      .unwrap_or_else(|_| "3000".to_string())
-      .parse::<u16>()
-      .unwrap_or(3000);
-    
-    // Build config manually from env vars
+    // No config file - build from defaults/environment
+    let transport = if let Some(port) = http_port {
+      tracing::info!("No config file found, using HTTP streaming on port {} (from --http-port)", port);
+      TransportType::HttpStreaming { port }
+    } else if let Ok(port_str) = std::env::var("PORT") {
+      if let Ok(port) = port_str.parse::<u16>() {
+        tracing::info!("No config file found, using HTTP streaming on port {} (from PORT env)", port);
+        TransportType::HttpStreaming { port }
+      } else {
+        tracing::info!("No config file found, using default stdio configuration");
+        TransportType::Stdio
+      }
+    } else {
+      tracing::info!("No config file found, using default stdio configuration");
+      TransportType::Stdio
+    };
+
+    // Set log file for stdio transport
+    let log_file = if matches!(transport, TransportType::Stdio) {
+      Some(format!("/tmp/{}.log", env!("CARGO_PKG_NAME")))
+    } else {
+      None
+    };
+
     Ok(Config {
       server: ServerConfig {
         name: env!("CARGO_PKG_NAME").to_string(),
-        transport: TransportType::HttpStreaming { port },
+        transport,
       },
       telemetry: TelemetryConfig {
         level: std::env::var("MCP_TELEMETRY_LEVEL").unwrap_or_else(|_| "info".to_string()),
@@ -102,7 +128,7 @@ impl Config {
           Ok("json") => LogFormat::Json,
           _ => LogFormat::Pretty,
         },
-        file: None,
+        file: log_file,
       },
       #[cfg(feature = "auth")]
       redis: std::env::var("MCP_REDIS_URL")
