@@ -1,0 +1,26 @@
+services:
+  gitlab-mcp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: gitlab-mcp:latest
+    container_name: gitlab-mcp
+    environment:
+      - RUST_LOG=info
+    ports:
+      - "8080:8080"
+    volumes:
+      # Option 1: Mount your local config.toml directly into the container at /config.toml
+      # This allows you to customize the config without rebuilding the image
+      - ../config.toml:/config.toml:ro
+      
+      # Option 2: If you want to persist the user config directory, uncomment this instead:
+      # - ~/.config/gitlab-mcp:/app/.config/gitlab-mcp:rw
+      
+      # Option 3: Use a named volume for persistent config (recommended for production):
+      # - gitlab-mcp-config:/app/.config/gitlab-mcp:rw
+    restart: unless-stopped
+
+# Uncomment this if using Option 3 above
+# volumes:
+#   gitlab-mcp-config:

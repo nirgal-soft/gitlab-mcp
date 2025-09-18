@@ -1,0 +1,7 @@
+[server]
+name = "gitlab-mcp"
+transport = "stdio"
+
+[telemetry]
+level = "info"
+format = "pretty"
